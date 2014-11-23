@@ -44,7 +44,10 @@ func NewManager(host, cert, path string) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) ContainerName(pname, spath string) (string, error) {
+// generate an unique image name based on the provider name and path to the state folder
+func (m *Manager) ImageName(pname, spath string) (string, error) {
+
+	//create md5 of full path
 	hash := md5.New()
 	_, err := hash.Write([]byte(spath))
 	if err != nil {
@@ -121,14 +124,15 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 		return "", err
 	}
 
-	cname, err := m.ContainerName(pname, root)
+	// generate an unique image name based on the provider name and path to the state folder
+	iname, err := m.ImageName(pname, root)
 	if err != nil {
 		return "", err
 	}
 
 	//name after provider and hash of state name
 	bopts := docker.BuildImageOptions{
-		Name:         cname,
+		Name:         iname,
 		InputStream:  in,
 		OutputStream: out,
 	}
@@ -138,7 +142,7 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 		return "", err
 	}
 
-	return cname, nil
+	return iname, nil
 }
 
 // Start a state by running a Docker container from an image
