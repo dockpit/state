@@ -1,17 +1,17 @@
 package state
 
 import (
-	"archive/tar"
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"path/filepath"
 
 	"github.com/fsouza/go-dockerclient"
+
+	"github.com/dockpit/dirtar"
 )
 
 type Manager struct {
@@ -62,65 +62,13 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 
 	//create writers
 	in := bytes.NewBuffer(nil)
-	tw := tar.NewWriter(in)
 
 	//expected context path for the state
 	root := filepath.Join(m.Dir, pname, fmt.Sprintf("'%s'", sname))
 
-	//walk and tar all files in a dir
-	//@from http://stackoverflow.com/questions/13611100/how-to-write-a-directory-not-just-the-files-in-it-to-a-tar-gz-file-in-golang
-	visit := func(fpath string, fi os.FileInfo, err error) error {
-
-		//cancel walk if something went wrong
-		if err != nil {
-			return err
-		}
-
-		//skip root
-		if fpath == root {
-			return nil
-		}
-
-		//dont 'add' dirs to archive
-		if fi.IsDir() {
-			return nil
-		}
-
-		f, err := os.Open(fpath)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-
-		//use relative path inside archive
-		rel, err := filepath.Rel(root, fpath)
-		if err != nil {
-			return err
-		}
-
-		//create header from file info struct
-		hdr, err := tar.FileInfoHeader(fi, rel)
-		if err != nil {
-			return err
-		}
-
-		//write header to archive
-		// hdr.Name = rel?
-		err = tw.WriteHeader(hdr)
-		if err != nil {
-			return err
-		}
-
-		//copy content into archive
-		if _, err = io.Copy(tw, f); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	//walk the context and create archive
-	if err := filepath.Walk(root, visit); err != nil {
+	//tar directory
+	err := dirtar.Tar(root, in)
+	if err != nil {
 		return "", err
 	}
 
