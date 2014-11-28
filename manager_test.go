@@ -53,4 +53,19 @@ func TestBuild(t *testing.T) {
 
 	assert.Equal(t, `pitstate_mysql_c189303ee6bcedc685646c70a493ed27`, iname)
 	assert.NotEqual(t, false, match, fmt.Sprintf("unexpected build output: %s", out.String()))
+
+	//then start it
+	err = m.Start("mysql", "a single user")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//@todo test if online
+
+	//then stop it
+	err = m.Stop("mysql", "a single user")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 }

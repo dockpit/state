@@ -15,8 +15,9 @@ import (
 )
 
 type Manager struct {
-	Dir    string
-	Client *docker.Client
+	Dir string
+
+	client *docker.Client
 }
 
 // Manages state for microservice testing by creating
@@ -36,12 +37,17 @@ func NewManager(host, cert, path string) (*Manager, error) {
 	hurl.Scheme = "https"
 
 	//create docker client
-	m.Client, err = docker.NewTLSClient(hurl.String(), filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"), filepath.Join(cert, "ca.pem"))
+	m.client, err = docker.NewTLSClient(hurl.String(), filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"), filepath.Join(cert, "ca.pem"))
 	if err != nil {
 		return nil, err
 	}
 
 	return m, nil
+}
+
+//turn provider and statename into a path
+func (m *Manager) ContextPath(pname, sname string) string {
+	return filepath.Join(m.Dir, pname, fmt.Sprintf("'%s'", sname))
 }
 
 // generate an unique image name based on the provider name and path to the state folder
@@ -64,7 +70,7 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 	in := bytes.NewBuffer(nil)
 
 	//expected context path for the state
-	root := filepath.Join(m.Dir, pname, fmt.Sprintf("'%s'", sname))
+	root := m.ContextPath(pname, sname)
 
 	//tar directory
 	err := dirtar.Tar(root, in)
@@ -86,7 +92,7 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 	}
 
 	//issue build command to docker host
-	if err := m.Client.BuildImage(bopts); err != nil {
+	if err := m.client.BuildImage(bopts); err != nil {
 		return "", err
 	}
 
@@ -96,5 +102,75 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 // Start a state by running a Docker container from an image
 func (m *Manager) Start(pname, sname string) error {
 
-	return fmt.Errorf("not implemented")
+	//determine image name by path
+	root := m.ContextPath(pname, sname)
+	iname, err := m.ImageName(pname, root)
+	if err != nil {
+		return err
+	}
+
+	//create the container
+	c, err := m.client.CreateContainer(docker.CreateContainerOptions{
+		Name:   iname,
+		Config: &docker.Config{Image: iname},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	//@todo configure port mapping as expected
+
+	//start the container we created
+	err = m.client.StartContainer(c.ID, &docker.HostConfig{PublishAllPorts: true})
+	if err != nil {
+		return err
+	}
+
+	//get container port mapping
+	ci, err := m.client.InspectContainer(c.ID)
+	if err != nil {
+		return err
+	}
+
+	_ = ci
+
+	//@todo formulate and return information that is handy for
+
+	return nil
+}
+
+// stop a state by removing a Docker container
+func (m *Manager) Stop(pname, sname string) error {
+
+	//create name for container
+	root := m.ContextPath(pname, sname)
+	iname, err := m.ImageName(pname, root)
+	if err != nil {
+		return err
+	}
+
+	//get all containers
+	cs, err := m.client.ListContainers(docker.ListContainersOptions{})
+	if err != nil {
+		return err
+	}
+
+	//get container that matches the name
+	// var container *docker.APIContainers
+	var container docker.APIContainers
+	for _, c := range cs {
+		for _, n := range c.Names {
+			if n[1:] == iname {
+				container = c
+			}
+		}
+	}
+
+	//remove hard since mocks are ephemeral
+	return m.client.RemoveContainer(docker.RemoveContainerOptions{
+		ID:            container.ID,
+		RemoveVolumes: true,
+		Force:         true,
+	})
 }
