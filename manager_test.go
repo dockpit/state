@@ -9,9 +9,22 @@ import (
 	"testing"
 
 	"github.com/bmizerany/assert"
+	"github.com/fsouza/go-dockerclient"
 
+	"github.com/dockpit/pit/config"
 	"github.com/dockpit/state"
 )
+
+type configMock struct{}
+
+func (c *configMock) DependencyConfigs() []config.DependencyC  { return []config.DependencyC{} }
+func (c *configMock) ProviderConfigs() []config.StateProviderC { return []config.StateProviderC{} }
+func (c *configMock) PortBindingsForDep(dep string) map[docker.Port][]docker.PortBinding {
+	return map[docker.Port][]docker.PortBinding{}
+}
+func (c *configMock) PortBindingsForState(pname string) map[docker.Port][]docker.PortBinding {
+	return map[docker.Port][]docker.PortBinding{}
+}
 
 func getmanager(t *testing.T) *state.Manager {
 	wd, err := os.Getwd()
@@ -29,7 +42,9 @@ func getmanager(t *testing.T) *state.Manager {
 		t.Skip("No DOCKER_CERT_PATH env variable setup")
 	}
 
-	m, err := state.NewManager(h, cert, filepath.Join(wd, "docs", "states"))
+	conf := &configMock{}
+
+	m, err := state.NewManager(h, cert, filepath.Join(wd, "docs", "states"), conf)
 	if err != nil {
 		t.Fatal(err)
 	}

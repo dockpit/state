@@ -12,19 +12,23 @@ import (
 	"github.com/fsouza/go-dockerclient"
 
 	"github.com/dockpit/dirtar"
+	"github.com/dockpit/pit/config"
 )
 
 type Manager struct {
 	Dir string
 
 	client *docker.Client
+	conf   config.C
 }
 
 // Manages state for microservice testing by creating
 // docker images and starting containers when necessary
-func NewManager(host, cert, path string) (*Manager, error) {
+func NewManager(host, cert, path string, conf config.C) (*Manager, error) {
 	m := &Manager{
 		Dir: path,
+
+		conf: conf,
 	}
 
 	//parse docker host addr as url
@@ -118,6 +122,8 @@ func (m *Manager) Start(pname, sname string) error {
 	if err != nil {
 		return err
 	}
+
+	//@todo get configuration by pname
 
 	//@todo configure port mapping as expected
 
