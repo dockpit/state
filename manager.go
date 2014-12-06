@@ -123,12 +123,11 @@ func (m *Manager) Start(pname, sname string) error {
 		return err
 	}
 
-	//@todo get configuration by pname
-
-	//@todo configure port mapping as expected
+	//get port configuration by provider name
+	portb := m.conf.PortBindingsForState(pname)
 
 	//start the container we created
-	err = m.client.StartContainer(c.ID, &docker.HostConfig{PublishAllPorts: true})
+	err = m.client.StartContainer(c.ID, &docker.HostConfig{PortBindings: portb})
 	if err != nil {
 		return err
 	}
@@ -140,7 +139,6 @@ func (m *Manager) Start(pname, sname string) error {
 	}
 
 	_ = ci
-
 	//@todo formulate and return information that is handy for
 
 	return nil

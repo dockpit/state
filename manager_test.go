@@ -75,7 +75,7 @@ func TestBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	//@todo test if online
+	//@todo test if online?
 
 	//then stop it
 	err = m.Stop("mysql", "a single user")
