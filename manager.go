@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"path/filepath"
 
-	"github.com/fsouza/go-dockerclient"
+	"github.com/dockpit/go-dockerclient"
 
 	"github.com/dockpit/dirtar"
 	"github.com/dockpit/pit/config"
@@ -132,6 +132,8 @@ func (m *Manager) Start(pname, sname string) error {
 		return err
 	}
 
+	//@todo, wait for state container to be ready
+
 	//get container port mapping
 	ci, err := m.client.InspectContainer(c.ID)
 	if err != nil {
@@ -139,7 +141,7 @@ func (m *Manager) Start(pname, sname string) error {
 	}
 
 	_ = ci
-	//@todo formulate and return information that is handy for
+	//@todo formulate and return information that is handy for consumers
 
 	return nil
 }

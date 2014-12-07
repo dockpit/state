@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/bmizerany/assert"
-	"github.com/fsouza/go-dockerclient"
+	"github.com/dockpit/go-dockerclient"
 
 	"github.com/dockpit/pit/config"
 	"github.com/dockpit/state"
