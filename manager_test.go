@@ -7,23 +7,23 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+	// "time"
 
 	"github.com/bmizerany/assert"
-	"github.com/dockpit/go-dockerclient"
 
 	"github.com/dockpit/pit/config"
 	"github.com/dockpit/state"
 )
 
-type configMock struct{}
-
-func (c *configMock) DependencyConfigs() []config.DependencyC  { return []config.DependencyC{} }
-func (c *configMock) ProviderConfigs() []config.StateProviderC { return []config.StateProviderC{} }
-func (c *configMock) PortBindingsForDep(dep string) map[docker.Port][]docker.PortBinding {
-	return map[docker.Port][]docker.PortBinding{}
-}
-func (c *configMock) PortBindingsForState(pname string) map[docker.Port][]docker.PortBinding {
-	return map[docker.Port][]docker.PortBinding{}
+var mongo_configd = &config.ConfigData{
+	StateProviders: map[string]*config.StateProviderConfigData{
+		"mongo": &config.StateProviderConfigData{
+			Ports:        []string{},
+			ReadyPattern: ".*waiting for connections.*",
+			ReadyTimeout: "1s",                    //limit to make sure it times out when journalling
+			Cmd:          []string{"--nojournal"}, //mongo would normally timeout because of journaling
+		},
+	},
 }
 
 func getmanager(t *testing.T) *state.Manager {
@@ -42,7 +42,10 @@ func getmanager(t *testing.T) *state.Manager {
 		t.Skip("No DOCKER_CERT_PATH env variable setup")
 	}
 
-	conf := &configMock{}
+	conf, err := config.NewConfig(mongo_configd)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	m, err := state.NewManager(h, cert, filepath.Join(wd, "docs", "states"), conf)
 	if err != nil {
@@ -56,7 +59,7 @@ func TestBuild(t *testing.T) {
 	m := getmanager(t)
 	out := bytes.NewBuffer(nil)
 
-	iname, err := m.Build("mysql", "a single user", out)
+	iname, err := m.Build("mongo", "several users", out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,11 +69,11 @@ func TestBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assert.Equal(t, `pitstate_mysql_c189303ee6bcedc685646c70a493ed27`, iname)
+	assert.Equal(t, `pitstate_mongo_a5bd1f23230a3142180a1e0dc1b68602`, iname)
 	assert.NotEqual(t, false, match, fmt.Sprintf("unexpected build output: %s", out.String()))
 
 	//then start it
-	err = m.Start("mysql", "a single user")
+	err = m.Start("mongo", "several users")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +81,7 @@ func TestBuild(t *testing.T) {
 	//@todo test if online?
 
 	//then stop it
-	err = m.Stop("mysql", "a single user")
+	err = m.Stop("mongo", "several users")
 	if err != nil {
 		t.Fatal(err)
 	}

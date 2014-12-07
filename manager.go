@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"time"
 
 	"github.com/dockpit/go-dockerclient"
 
@@ -21,6 +22,9 @@ type Manager struct {
 	client *docker.Client
 	conf   config.C
 }
+
+//configuration stuff? @todo move to config
+var ReadyInterval = time.Millisecond * 50
 
 // Manages state for microservice testing by creating
 // docker images and starting containers when necessary
@@ -113,23 +117,69 @@ func (m *Manager) Start(pname, sname string) error {
 		return err
 	}
 
+	//get state provider conf
+	spconf := m.conf.StateProviderConfig(pname)
+	if spconf == nil {
+		return fmt.Errorf("No configuration for state provider: %s", pname)
+	}
+
 	//create the container
 	c, err := m.client.CreateContainer(docker.CreateContainerOptions{
-		Name:   iname,
-		Config: &docker.Config{Image: iname},
+		Name: iname,
+		Config: &docker.Config{
+			Image: iname,
+			Cmd:   spconf.Cmd(),
+		},
 	})
 
 	if err != nil {
 		return err
 	}
 
-	//get port configuration by provider name
-	portb := m.conf.PortBindingsForState(pname)
-
 	//start the container we created
-	err = m.client.StartContainer(c.ID, &docker.HostConfig{PortBindings: portb})
+	err = m.client.StartContainer(c.ID, &docker.HostConfig{PortBindings: spconf.PortBindings()})
 	if err != nil {
 		return err
+	}
+
+	//'ping' logs until we got something that indicates
+	// it started
+	to := make(chan bool, 1)
+	go func() {
+		time.Sleep(spconf.ReadyTimeout())
+		to <- true
+	}()
+
+	//start pinging logs
+	var buf bytes.Buffer
+	for {
+
+		buf.Reset()
+		err = m.client.Logs(docker.LogsOptions{
+			Container:    c.ID,
+			OutputStream: &buf,
+			ErrorStream:  &buf,
+			Stdout:       true,
+			Stderr:       true,
+			RawTerminal:  true,
+		})
+		if err != nil {
+			return err
+		}
+
+		//if it matches; break loop the state started
+		if spconf.ReadyExp().MatchString(buf.String()) {
+			break
+		}
+
+		select {
+		case <-to:
+			return fmt.Errorf("Mock server starting timed out")
+			break
+		case <-time.After(ReadyInterval):
+			continue
+		}
+
 	}
 
 	//@todo, wait for state container to be ready
