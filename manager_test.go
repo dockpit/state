@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
-	// "time"
+	"time"
 
 	"github.com/bmizerany/assert"
+	"labix.org/v2/mgo"
 
 	"github.com/dockpit/pit/config"
 	"github.com/dockpit/state"
@@ -18,7 +19,7 @@ import (
 var mongo_configd = &config.ConfigData{
 	StateProviders: map[string]*config.StateProviderConfigData{
 		"mongo": &config.StateProviderConfigData{
-			Ports:        []string{},
+			Ports:        []string{"27017:30000"},
 			ReadyPattern: ".*waiting for connections.*",
 			ReadyTimeout: "1s",                    //limit to make sure it times out when journalling
 			Cmd:          []string{"--nojournal"}, //mongo would normally timeout because of journaling
@@ -73,15 +74,21 @@ func TestBuild(t *testing.T) {
 	assert.NotEqual(t, false, match, fmt.Sprintf("unexpected build output: %s", out.String()))
 
 	//then start it
-	err = m.Start("mongo", "several users")
+	sc, err := m.Start("mongo", "several users")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	//@todo test if online?
-
 	//then stop it
-	err = m.Stop("mongo", "several users")
+	defer func() {
+		err = m.Stop("mongo", "several users")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	//test if online, if not timeout after 100ms
+	_, err = mgo.DialWithTimeout("mongodb://"+sc.Host+":30000", time.Millisecond*100)
 	if err != nil {
 		t.Fatal(err)
 	}

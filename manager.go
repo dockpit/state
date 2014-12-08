@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dockpit/go-dockerclient"
@@ -21,6 +22,7 @@ type Manager struct {
 
 	client *docker.Client
 	conf   config.C
+	host   string
 }
 
 //configuration stuff? @todo move to config
@@ -32,6 +34,7 @@ func NewManager(host, cert, path string, conf config.C) (*Manager, error) {
 	m := &Manager{
 		Dir: path,
 
+		host: host,
 		conf: conf,
 	}
 
@@ -108,19 +111,19 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 }
 
 // Start a state by running a Docker container from an image
-func (m *Manager) Start(pname, sname string) error {
+func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 
 	//determine image name by path
 	root := m.ContextPath(pname, sname)
 	iname, err := m.ImageName(pname, root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	//get state provider conf
 	spconf := m.conf.StateProviderConfig(pname)
 	if spconf == nil {
-		return fmt.Errorf("No configuration for state provider: %s", pname)
+		return nil, fmt.Errorf("No configuration for state provider: %s", pname)
 	}
 
 	//create the container
@@ -133,13 +136,13 @@ func (m *Manager) Start(pname, sname string) error {
 	})
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	//start the container we created
 	err = m.client.StartContainer(c.ID, &docker.HostConfig{PortBindings: spconf.PortBindings()})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	//'ping' logs until we got something that indicates
@@ -164,7 +167,7 @@ func (m *Manager) Start(pname, sname string) error {
 			RawTerminal:  true,
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		//if it matches; break loop the state started
@@ -174,7 +177,7 @@ func (m *Manager) Start(pname, sname string) error {
 
 		select {
 		case <-to:
-			return fmt.Errorf("Mock server starting timed out")
+			return nil, fmt.Errorf("State Provider starting timed out after %s", spconf.ReadyTimeout())
 			break
 		case <-time.After(ReadyInterval):
 			continue
@@ -182,18 +185,23 @@ func (m *Manager) Start(pname, sname string) error {
 
 	}
 
-	//@todo, wait for state container to be ready
-
 	//get container port mapping
 	ci, err := m.client.InspectContainer(c.ID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	_ = ci
-	//@todo formulate and return information that is handy for consumers
+	//parse to formulate state provider host
+	hurl, err := url.Parse(m.host)
+	if err != nil {
+		return nil, err
+	}
 
-	return nil
+	//formulate and return information that is handy for consumers
+	return &StateContainer{
+		ID:   ci.ID,
+		Host: strings.SplitN(hurl.Host, ":", 2)[0],
+	}, nil
 }
 
 // stop a state by removing a Docker container
