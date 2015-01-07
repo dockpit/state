@@ -43,7 +43,7 @@ func getmanager(t *testing.T) *state.Manager {
 		t.Skip("No DOCKER_CERT_PATH env variable setup")
 	}
 
-	conf, err := config.NewConfig(mongo_configd)
+	conf, err := config.Parse(mongo_configd)
 	if err != nil {
 		t.Fatal(err)
 	}

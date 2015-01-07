@@ -57,12 +57,12 @@ func NewManager(host, cert, path string, conf config.C) (*Manager, error) {
 }
 
 //turn provider and statename into a path
-func (m *Manager) ContextPath(pname, sname string) string {
+func (m *Manager) contextPath(pname, sname string) string {
 	return filepath.Join(m.Dir, pname, fmt.Sprintf("'%s'", sname))
 }
 
 // generate an unique image name based on the provider name and path to the state folder
-func (m *Manager) ImageName(pname, spath string) (string, error) {
+func (m *Manager) imageName(pname, spath string) (string, error) {
 
 	//create md5 of full path
 	hash := md5.New()
@@ -81,7 +81,7 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 	in := bytes.NewBuffer(nil)
 
 	//expected context path for the state
-	root := m.ContextPath(pname, sname)
+	root := m.contextPath(pname, sname)
 
 	//tar directory
 	err := dirtar.Tar(root, in)
@@ -90,7 +90,7 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 	}
 
 	// generate an unique image name based on the provider name and path to the state folder
-	iname, err := m.ImageName(pname, root)
+	iname, err := m.imageName(pname, root)
 	if err != nil {
 		return "", err
 	}
@@ -114,8 +114,8 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 
 	//determine image name by path
-	root := m.ContextPath(pname, sname)
-	iname, err := m.ImageName(pname, root)
+	root := m.contextPath(pname, sname)
+	iname, err := m.imageName(pname, root)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +208,8 @@ func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 func (m *Manager) Stop(pname, sname string) error {
 
 	//create name for container
-	root := m.ContextPath(pname, sname)
-	iname, err := m.ImageName(pname, root)
+	root := m.contextPath(pname, sname)
+	iname, err := m.imageName(pname, root)
 	if err != nil {
 		return err
 	}
