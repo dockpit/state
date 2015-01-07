@@ -3,6 +3,7 @@ package state
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -12,17 +13,22 @@ import (
 	"time"
 
 	"github.com/dockpit/go-dockerclient"
+	"github.com/samalba/dockerclient"
 
 	"github.com/dockpit/dirtar"
+	"github.com/dockpit/iowait"
 	"github.com/dockpit/pit/config"
 )
 
+// @todo fix mixed libary use:
+//  - https://github.com/samalba/dockerclient/issues/62
 type Manager struct {
 	Dir string
 
-	client *docker.Client
-	conf   config.C
-	host   string
+	client  *docker.Client
+	cclient *dockerclient.DockerClient
+	conf    config.C
+	host    string
 }
 
 //configuration stuff? @todo move to config
@@ -49,6 +55,17 @@ func NewManager(host, cert, path string, conf config.C) (*Manager, error) {
 
 	//create docker client
 	m.client, err = docker.NewTLSClient(hurl.String(), filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"), filepath.Join(cert, "ca.pem"))
+	if err != nil {
+		return nil, err
+	}
+
+	var tlsc tls.Config
+	c, err := tls.LoadX509KeyPair(filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"))
+	tlsc.Certificates = append(tlsc.Certificates, c)
+	tlsc.InsecureSkipVerify = true //@todo switch to secure with docker ca.pem
+
+	//create docker client
+	m.cclient, err = dockerclient.NewDockerClient(hurl.String(), &tlsc)
 	if err != nil {
 		return nil, err
 	}
@@ -126,67 +143,30 @@ func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 		return nil, fmt.Errorf("No configuration for state provider: %s", pname)
 	}
 
-	//create the container
-	c, err := m.client.CreateContainer(docker.CreateContainerOptions{
-		Name: iname,
-		Config: &docker.Config{
-			Image: iname,
-			Cmd:   spconf.Cmd(),
-		},
-	})
-
+	id, err := m.cclient.CreateContainer(&dockerclient.ContainerConfig{Image: iname, Cmd: spconf.Cmd()}, iname)
 	if err != nil {
 		return nil, err
 	}
 
-	//start the container we created
-	err = m.client.StartContainer(c.ID, &docker.HostConfig{PortBindings: spconf.PortBindings()})
+	err = m.client.StartContainer(id, &docker.HostConfig{PortBindings: spconf.PortBindings()})
 	if err != nil {
 		return nil, err
 	}
 
-	//'ping' logs until we got something that indicates
-	// it started
-	to := make(chan bool, 1)
-	go func() {
-		time.Sleep(spconf.ReadyTimeout())
-		to <- true
-	}()
+	rc, err := m.cclient.ContainerLogs(id, &dockerclient.LogOptions{Follow: true, Stdout: true, Stderr: true})
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
 
-	//start pinging logs
-	var buf bytes.Buffer
-	for {
-
-		buf.Reset()
-		err = m.client.Logs(docker.LogsOptions{
-			Container:    c.ID,
-			OutputStream: &buf,
-			ErrorStream:  &buf,
-			Stdout:       true,
-			Stderr:       true,
-			RawTerminal:  true,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		//if it matches; break loop the state started
-		if spconf.ReadyExp().MatchString(buf.String()) {
-			break
-		}
-
-		select {
-		case <-to:
-			return nil, fmt.Errorf("State Provider starting timed out after %s", spconf.ReadyTimeout())
-			break
-		case <-time.After(ReadyInterval):
-			continue
-		}
-
+	// scan for ready line
+	err = iowait.WaitForRegexp(rc, spconf.ReadyExp(), spconf.ReadyTimeout())
+	if err != nil {
+		return nil, err
 	}
 
 	//get container port mapping
-	ci, err := m.client.InspectContainer(c.ID)
+	ci, err := m.client.InspectContainer(id)
 	if err != nil {
 		return nil, err
 	}
