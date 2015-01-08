@@ -145,24 +145,24 @@ func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 
 	id, err := m.cclient.CreateContainer(&dockerclient.ContainerConfig{Image: iname, Cmd: spconf.Cmd()}, iname)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to create state container with image '%s': %s, are your states build?", iname, err)
 	}
 
 	err = m.client.StartContainer(id, &docker.HostConfig{PortBindings: spconf.PortBindings()})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to start state container %s: %s", id, err)
 	}
 
 	rc, err := m.cclient.ContainerLogs(id, &dockerclient.LogOptions{Follow: true, Stdout: true, Stderr: true})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to follow logs of state container %s: %s", id, err)
 	}
 	defer rc.Close()
 
 	// scan for ready line
 	err = iowait.WaitForRegexp(rc, spconf.ReadyExp(), spconf.ReadyTimeout())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to wait for state container %s: %s", id, err)
 	}
 
 	//get container port mapping
