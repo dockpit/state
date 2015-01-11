@@ -48,7 +48,7 @@ func getmanager(t *testing.T) *state.Manager {
 		t.Fatal(err)
 	}
 
-	m, err := state.NewManager(h, cert, filepath.Join(wd, "docs", "states"), conf)
+	m, err := state.NewManager(h, cert, filepath.Join(wd, ".example", "states"), conf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assert.Equal(t, `pitstate_mongo_a5bd1f23230a3142180a1e0dc1b68602`, iname)
+	assert.Equal(t, `pitstate_mongo_a9e71e2d929f3305165ed2fc4d5b25a3`, iname)
 	assert.NotEqual(t, false, match, fmt.Sprintf("unexpected build output: %s", out.String()))
 
 	//then start it
