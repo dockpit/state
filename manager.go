@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/dockpit/go-dockerclient"
 	"github.com/samalba/dockerclient"
@@ -30,9 +29,6 @@ type Manager struct {
 	conf    config.C
 	host    string
 }
-
-//configuration stuff? @todo move to config
-var ReadyInterval = time.Millisecond * 50
 
 // Manages state for microservice testing by creating
 // docker images and starting containers when necessary
