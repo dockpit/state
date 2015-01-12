@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dockpit/go-dockerclient"
 	"github.com/samalba/dockerclient"
 
 	"github.com/dockpit/dirtar"
@@ -23,10 +22,9 @@ import (
 type Manager struct {
 	Dir string
 
-	client  *docker.Client
-	cclient *dockerclient.DockerClient
-	conf    config.C
-	host    string
+	client *dockerclient.DockerClient
+	conf   config.C
+	host   string
 }
 
 // Manages state for microservice testing by creating
@@ -48,19 +46,13 @@ func NewManager(host, cert, path string, conf config.C) (*Manager, error) {
 	//change to http connection
 	hurl.Scheme = "https"
 
-	//create docker client
-	m.client, err = docker.NewTLSClient(hurl.String(), filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"), filepath.Join(cert, "ca.pem"))
-	if err != nil {
-		return nil, err
-	}
-
 	var tlsc tls.Config
 	c, err := tls.LoadX509KeyPair(filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"))
 	tlsc.Certificates = append(tlsc.Certificates, c)
 	tlsc.InsecureSkipVerify = true //@todo switch to secure with docker ca.pem
 
 	//create docker client
-	m.cclient, err = dockerclient.NewDockerClient(hurl.String(), &tlsc)
+	m.client, err = dockerclient.NewDockerClient(hurl.String(), &tlsc)
 	if err != nil {
 		return nil, err
 	}
@@ -107,15 +99,15 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 		return "", err
 	}
 
-	// fall back to streaming ourselves, new client doesn't
-	// implement image building (yet): https://github.com/samalba/dockerclient/issues/62
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/build?t=%s", m.cclient.URL, iname), in)
+	// fall back to streaming ourselves for building the image, samalba has yet to
+	// implement image building: https://github.com/samalba/dockerclient/issues/62
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/build?t=%s", m.client.URL, iname), in)
 	if err != nil {
 		return "", err
 	}
 
 	req.Header.Set("Content-Type", "application/tar")
-	resp, err := m.cclient.HTTPClient.Do(req)
+	resp, err := m.client.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -131,63 +123,52 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 
 // Start a state by running a Docker container from an image
 func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
-
-	//determine image name by path
 	root := m.contextPath(pname, sname)
 	iname, err := m.imageName(pname, root)
 	if err != nil {
 		return nil, err
 	}
 
-	//get state provider conf
 	spconf := m.conf.StateProviderConfig(pname)
 	if spconf == nil {
 		return nil, fmt.Errorf("No configuration for state provider: %s", pname)
 	}
 
-	id, err := m.cclient.CreateContainer(&dockerclient.ContainerConfig{Image: iname, Cmd: spconf.Cmd()}, iname)
+	id, err := m.client.CreateContainer(&dockerclient.ContainerConfig{Image: iname, Cmd: spconf.Cmd()}, iname)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create state container with image '%s': %s, are your states build?", iname, err)
 	}
 
-	//configuration to portbindings
-	bindings := map[docker.Port][]docker.PortBinding{}
+	bindings := map[string][]dockerclient.PortBinding{}
 	for _, p := range spconf.Ports() {
-		bindings[docker.Port(p.Container+"/tcp")] = []docker.PortBinding{docker.PortBinding{HostPort: p.Host}}
+		bindings[p.Container+"/tcp"] = []dockerclient.PortBinding{
+			dockerclient.PortBinding{"0.0.0.0", p.Host},
+		}
 	}
 
-	err = m.client.StartContainer(id, &docker.HostConfig{PortBindings: bindings})
+	err = m.client.StartContainer(id, &dockerclient.HostConfig{PortBindings: bindings})
 	if err != nil {
-		return nil, fmt.Errorf("Failed to start state container %s: %s", id, err)
+		return nil, err
 	}
 
-	rc, err := m.cclient.ContainerLogs(id, &dockerclient.LogOptions{Follow: true, Stdout: true, Stderr: true})
+	rc, err := m.client.ContainerLogs(id, &dockerclient.LogOptions{Follow: true, Stdout: true, Stderr: true})
 	if err != nil {
 		return nil, fmt.Errorf("Failed to follow logs of state container %s: %s", id, err)
 	}
 	defer rc.Close()
 
-	// scan for ready line
 	err = iowait.WaitForRegexp(rc, spconf.ReadyExp(), spconf.ReadyTimeout())
 	if err != nil {
 		return nil, fmt.Errorf("Failed to wait for state container %s: %s", id, err)
 	}
 
-	//get container port mapping
-	ci, err := m.client.InspectContainer(id)
-	if err != nil {
-		return nil, err
-	}
-
-	//parse to formulate state provider host
 	hurl, err := url.Parse(m.host)
 	if err != nil {
 		return nil, err
 	}
 
-	//formulate and return information that is handy for consumers
 	return &StateContainer{
-		ID:   ci.ID,
+		ID:   id,
 		Host: strings.SplitN(hurl.Host, ":", 2)[0],
 	}, nil
 }
@@ -203,14 +184,14 @@ func (m *Manager) Stop(pname, sname string) error {
 	}
 
 	//get all containers
-	cs, err := m.client.ListContainers(docker.ListContainersOptions{})
+	cs, err := m.client.ListContainers(true, false, "")
 	if err != nil {
 		return err
 	}
 
 	//get container that matches the name
 	// var container *docker.APIContainers
-	var container docker.APIContainers
+	var container dockerclient.Container
 	for _, c := range cs {
 		for _, n := range c.Names {
 			if n[1:] == iname {
@@ -219,10 +200,5 @@ func (m *Manager) Stop(pname, sname string) error {
 		}
 	}
 
-	//remove hard since mocks are ephemeral
-	return m.client.RemoveContainer(docker.RemoveContainerOptions{
-		ID:            container.ID,
-		RemoveVolumes: true,
-		Force:         true,
-	})
+	return m.client.RemoveContainer(container.Id, true)
 }
