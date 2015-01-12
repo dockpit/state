@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -19,8 +20,6 @@ import (
 	"github.com/dockpit/pit/config"
 )
 
-// @todo fix mixed libary use:
-//  - https://github.com/samalba/dockerclient/issues/62
 type Manager struct {
 	Dir string
 
@@ -108,18 +107,25 @@ func (m *Manager) Build(pname, sname string, out io.Writer) (string, error) {
 		return "", err
 	}
 
-	//name after provider and hash of state name
-	bopts := docker.BuildImageOptions{
-		Name:         iname,
-		InputStream:  in,
-		OutputStream: out,
-	}
-
-	//issue build command to docker host
-	if err := m.client.BuildImage(bopts); err != nil {
+	// fall back to streaming ourselves, new client doesn't
+	// implement image building (yet): https://github.com/samalba/dockerclient/issues/62
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/build?t=%s", m.cclient.URL, iname), in)
+	if err != nil {
 		return "", err
 	}
 
+	req.Header.Set("Content-Type", "application/tar")
+	resp, err := m.cclient.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+
+	defer resp.Body.Close()
+	if resp.StatusCode > 200 {
+		return "", fmt.Errorf("Unexpected response while building image: %s", resp.Status)
+	}
+
+	io.Copy(out, resp.Body)
 	return iname, nil
 }
 
