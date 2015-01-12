@@ -144,7 +144,13 @@ func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 		return nil, fmt.Errorf("Failed to create state container with image '%s': %s, are your states build?", iname, err)
 	}
 
-	err = m.client.StartContainer(id, &docker.HostConfig{PortBindings: spconf.PortBindings()})
+	//configuration to portbindings
+	bindings := map[docker.Port][]docker.PortBinding{}
+	for _, p := range spconf.Ports() {
+		bindings[docker.Port(p.Container+"/tcp")] = []docker.PortBinding{docker.PortBinding{HostPort: p.Host}}
+	}
+
+	err = m.client.StartContainer(id, &docker.HostConfig{PortBindings: bindings})
 	if err != nil {
 		return nil, fmt.Errorf("Failed to start state container %s: %s", id, err)
 	}
