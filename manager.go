@@ -159,6 +159,14 @@ func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 
 	err = iowait.WaitForRegexp(rc, spconf.ReadyExp(), spconf.ReadyTimeout())
 	if err != nil {
+
+		//could be that ist started but match didn't succeed, for this we just
+		//call shutdown as it is a noop if we were wrong
+		serr := m.Stop(pname, sname)
+		if serr != nil {
+			return nil, fmt.Errorf("Failed to shutdown after failed to start: %s", serr)
+		}
+
 		return nil, fmt.Errorf("Failed to wait for state container %s: %s", id, err)
 	}
 
@@ -173,7 +181,8 @@ func (m *Manager) Start(pname, sname string) (*StateContainer, error) {
 	}, nil
 }
 
-// stop a state by removing a Docker container
+// stop a state by removing a Docker container, is a noop
+// if there is no state to stop
 func (m *Manager) Stop(pname, sname string) error {
 
 	//create name for container
@@ -198,6 +207,10 @@ func (m *Manager) Stop(pname, sname string) error {
 				container = c
 			}
 		}
+	}
+
+	if container.Id == "" {
+		return nil
 	}
 
 	return m.client.RemoveContainer(container.Id, true)

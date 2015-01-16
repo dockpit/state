@@ -17,6 +17,7 @@ import (
 )
 
 var mongo_configd = &config.ConfigData{
+	Subject: "http://localhost:8000",
 	StateProviders: map[string]*config.StateProviderConfigData{
 		"mongo": &config.StateProviderConfigData{
 			Ports:        []string{"27017:30000"},
