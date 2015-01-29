@@ -43,13 +43,17 @@ func NewManager(host, cert, path string, conf config.C) (*Manager, error) {
 		return nil, err
 	}
 
-	//change to http connection
-	hurl.Scheme = "https"
-
+	//use tlsc?
 	var tlsc tls.Config
-	c, err := tls.LoadX509KeyPair(filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"))
-	tlsc.Certificates = append(tlsc.Certificates, c)
-	tlsc.InsecureSkipVerify = true //@todo switch to secure with docker ca.pem
+	if cert != "" {
+		c, err := tls.LoadX509KeyPair(filepath.Join(cert, "cert.pem"), filepath.Join(cert, "key.pem"))
+		if err != nil {
+			return nil, err
+		}
+
+		tlsc.Certificates = append(tlsc.Certificates, c)
+		tlsc.InsecureSkipVerify = true //@todo switch to secure with docker ca.pem
+	}
 
 	//create docker client
 	m.client, err = dockerclient.NewDockerClient(hurl.String(), &tlsc)
